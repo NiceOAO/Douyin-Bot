@@ -11,7 +11,7 @@ if sys.version_info.major != 3:
 try:
     from common import debug, config, screenshot, UnicodeStreamFilter
     from common.auto_adb import auto_adb
-    from common import apiutil
+    from common.apiutil import AiPlat
     from common.compression import resize_image
 except Exception as ex:
     print(ex)
@@ -34,7 +34,7 @@ adb.test_device()
 config = config.open_accordant_config()
 
 # 审美标准
-BEAUTY_THRESHOLD = 80
+BEAUTY_THRESHOLD = 85
 
 # 最小年龄
 GIRL_MIN_AGE = 14
@@ -72,7 +72,7 @@ def next_page():
     """
     cmd = 'shell input swipe {x1} {y1} {x2} {y2} {duration}'.format(
         x1=config['center_point']['x'],
-        y1=config['center_point']['y']+config['center_point']['ry'],
+        y1=config['center_point']['y'] + config['center_point']['ry'],
         x2=config['center_point']['x'],
         y2=config['center_point']['y'],
         duration=200
@@ -116,16 +116,15 @@ def tap(x, y):
 
 
 def auto_reply():
-
     msg = "垆边人似月，皓腕凝霜雪。就在刚刚，我的心动了一下，小姐姐你好可爱呀_Powered_By_Python"
 
     # 点击右侧评论按钮
     tap(config['comment_bottom']['x'], config['comment_bottom']['y'])
     time.sleep(1)
-    #弹出评论列表后点击输入评论框
+    # 弹出评论列表后点击输入评论框
     tap(config['comment_text']['x'], config['comment_text']['y'])
     time.sleep(1)
-    #输入上面msg内容 ，注意要使用ADB keyboard  否则不能自动输入，参考： https://www.jianshu.com/p/2267adf15595
+    # 输入上面msg内容 ，注意要使用ADB keyboard  否则不能自动输入，参考： https://www.jianshu.com/p/2267adf15595
     cmd = 'shell am broadcast -a ADB_INPUT_TEXT --es msg {text}'.format(text=msg)
     adb.run(cmd)
     time.sleep(1)
@@ -163,50 +162,51 @@ def main():
 
         time.sleep(1)
         screenshot.pull_screenshot()
+        resize_image('autojump.png', 'optimized.png', 1024 * 1024)
 
-        resize_image('autojump.png', 'optimized.png', 1024*1024)
-
-        with open('optimized.png', 'rb') as bin_data:
+        AiPlat.PNG_JPG('optimized.png')
+        with open('optimized.jpg', 'rb') as bin_data:
             image_data = bin_data.read()
 
-        ai_obj = apiutil.AiPlat(AppID, AppKey)
-        rsp = ai_obj.face_detectface(image_data, 0)
-
+        rsp = AiPlat.newApiPost(image_data)
+        if rsp == "error":
+            continue
         major_total = 0
         minor_total = 0
+        print(rsp.ImageWidth)
+        beauty = 0
+        for face in rsp.FaceInfos:
 
-        if rsp['ret'] == 0:
-            beauty = 0
-            for face in rsp['data']['face_list']:
+            msg_log = '[INFO] gender: {gender} age: {age} expression: {expression} beauty: {beauty}'.format(
+                gender=face.FaceAttributesInfo.Gender,
+                age=face.FaceAttributesInfo.Age,
+                expression=face.FaceAttributesInfo.Expression,
+                beauty=face.FaceAttributesInfo.Beauty,
+            )
+            print(msg_log)
 
-                msg_log = '[INFO] gender: {gender} age: {age} expression: {expression} beauty: {beauty}'.format(
-                    gender=face['gender'],
-                    age=face['age'],
-                    expression=face['expression'],
-                    beauty=face['beauty'],
-                )
-                print(msg_log)
-                face_area = (face['x'], face['y'], face['x']+face['width'], face['y']+face['height'])
-                img = Image.open("optimized.png")
-                cropped_img = img.crop(face_area).convert('RGB')
-                cropped_img.save(FACE_PATH + face['face_id'] + '.png')
-                # 性别判断
-                if face['beauty'] > beauty and face['gender'] < 50:
-                    beauty = face['beauty']
+            # 性别判断
+            if face.FaceAttributesInfo.Beauty > beauty and face.FaceAttributesInfo.Gender < 50:
+                beauty = face.FaceAttributesInfo.Beauty
 
-                if face['age'] > GIRL_MIN_AGE:
-                    major_total += 1
-                else:
-                    minor_total += 1
+            if face.FaceAttributesInfo.Age > GIRL_MIN_AGE:
+                major_total += 1
+            else:
+                minor_total += 1
 
-            # 是个美人儿~关注点赞走一波
-            if beauty > BEAUTY_THRESHOLD and major_total > minor_total:
-                print('发现漂亮妹子！！！')
-                thumbs_up()
-                follow_user()
+        # 是个美人儿~关注点赞走一波
+        if beauty > BEAUTY_THRESHOLD and major_total > minor_total:
+            print('发现漂亮妹子！！！')
+            thumbs_up()
+            face_area = (face.X-100, face.Y-100, face.X + face.Width+100, face.Y + face.Height+100)
+            img = Image.open("optimized.jpg")
+            cropped_img = img.crop(face_area).convert('RGB')
+            cropped_img.save(FACE_PATH + rsp.RequestId + '.jpg')
+            time.sleep(10)
+            # follow_user()
 
-                if cmd_args['reply']:
-                    auto_reply()
+            # if cmd_args['reply']:
+                # auto_reply()
 
         else:
             print(rsp)
